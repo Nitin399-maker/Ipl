@@ -46,8 +46,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ipl/assets/posted_log.json
-            ipl/assets/session.json
+            assets/posted_log.json
+            assets/session.json
           key: ipl-assets-${{ runner.os }}
           restore-keys: |
             ipl-assets-
@@ -71,7 +71,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r ipl/requirements.txt
+          pip install -r requirements.txt
 
       # ── 6. Restore music files from base64 secrets ────────────────
       #    Store each MP3 as a base64-encoded GitHub secret named:
@@ -85,12 +85,12 @@ jobs:
           MUSIC_04: ${{ secrets.MUSIC_04 }}
           MUSIC_05: ${{ secrets.MUSIC_05 }}
         run: |
-          mkdir -p ipl/assets/music
+          mkdir -p assets/music
           for i in 01 02 03 04 05; do
             VAR="MUSIC_$i"
             VAL="${!VAR}"
             if [ -n "$VAL" ]; then
-              echo "$VAL" | base64 -d > "ipl/assets/music/track_$i.mp3" 2>/dev/null || true
+              echo "$VAL" | base64 -d > "assets/music/track_$i.mp3" 2>/dev/null || true
               echo "Restored track_$i.mp3"
             fi
           done
@@ -107,7 +107,6 @@ jobs:
           IMGUR_CLIENT_ID:         ${{ secrets.IMGUR_CLIENT_ID }}
           DRY_RUN:                 ${{ github.event.inputs.dry_run || 'false' }}
         run: |
-          cd ipl
           ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
@@ -124,8 +123,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ipl/assets/posted_log.json
-            ipl/assets/session.json
+            assets/posted_log.json
+            assets/session.json
           key: ipl-assets-${{ runner.os }}
 
       # ── 9. Commit updated session.json if changed (optional) ──────
@@ -134,7 +133,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f ipl/assets/session.json ipl/assets/posted_log.json 2>/dev/null || true
+          git add -f assets/session.json assets/posted_log.json 2>/dev/null || true
           git diff --staged --quiet || git commit -m "chore: update ipl session/log [skip ci]"
           git push || true
         env:
