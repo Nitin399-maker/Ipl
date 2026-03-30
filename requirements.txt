@@ -1,0 +1,21 @@
+# RSS fetching
+feedparser==6.0.11
+
+# HTTP requests
+requests==2.31.0
+
+# Image handling
+Pillow==10.3.0
+
+# NumPy — must be <2 for moviepy 1.0.3 compatibility
+numpy<2
+
+# Video reel creation (image + music → MP4)
+moviepy==1.0.3
+
+# Instagram posting (unofficial, personal/creator accounts)
+instagrapi==2.1.2
+
+# Timezone support for Python 3.8 (ZoneInfo backport — not needed on 3.9+)
+# tzdata is needed on systems without /usr/share/zoneinfo (e.g., some Docker/GitHub Actions)
+tzdata

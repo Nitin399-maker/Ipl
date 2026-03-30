@@ -1,0 +1,141 @@
+name: IPL Tadka — Auto Post
+
+# ─────────────────────────────────────────────────────────────────────
+# Schedule: 6 posts per day at fixed IST times
+# IST = UTC+5:30, so convert:
+#   06:00 IST = 00:30 UTC
+#   10:00 IST = 04:30 UTC
+#   17:00 IST = 11:30 UTC
+#   21:00 IST = 15:30 UTC
+#   22:00 IST = 16:30 UTC
+#   23:15 IST = 17:45 UTC
+# ─────────────────────────────────────────────────────────────────────
+on:
+  schedule:
+    - cron: "30 0 * * *"   # 06:00 IST
+    - cron: "30 4 * * *"   # 10:00 IST
+    - cron: "30 11 * * *"  # 17:00 IST
+    - cron: "30 15 * * *"  # 21:00 IST
+    - cron: "30 16 * * *"  # 22:00 IST
+    - cron: "45 17 * * *"  # 23:15 IST
+
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run? (true = no real post)"
+        required: false
+        default: "false"
+      slot_hour:
+        description: "Force slot hour (6/10/17/21/22/23, leave blank for auto)"
+        required: false
+        default: ""
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── 1. Checkout repo ──────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Restore posted_log.json and session.json from cache ────
+      - name: Restore assets cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ipl/assets/posted_log.json
+            ipl/assets/session.json
+          key: ipl-assets-${{ runner.os }}
+          restore-keys: |
+            ipl-assets-
+
+      # ── 3. Set up Python ─────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── 4. Install system dependencies for moviepy / Pillow ───────
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            libgl1-mesa-glx \
+            libglib2.0-0
+
+      # ── 5. Install Python dependencies ───────────────────────────
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ipl/requirements.txt
+
+      # ── 6. Restore music files from base64 secrets ────────────────
+      #    Store each MP3 as a base64-encoded GitHub secret named:
+      #    MUSIC_01, MUSIC_02, MUSIC_03, ... (up to 10 tracks)
+      #    Generate with: base64 -w0 your_track.mp3 > track.b64
+      - name: Restore music tracks from secrets
+        env:
+          MUSIC_01: ${{ secrets.MUSIC_01 }}
+          MUSIC_02: ${{ secrets.MUSIC_02 }}
+          MUSIC_03: ${{ secrets.MUSIC_03 }}
+          MUSIC_04: ${{ secrets.MUSIC_04 }}
+          MUSIC_05: ${{ secrets.MUSIC_05 }}
+        run: |
+          mkdir -p ipl/assets/music
+          for i in 01 02 03 04 05; do
+            VAR="MUSIC_$i"
+            VAL="${!VAR}"
+            if [ -n "$VAL" ]; then
+              echo "$VAL" | base64 -d > "ipl/assets/music/track_$i.mp3" 2>/dev/null || true
+              echo "Restored track_$i.mp3"
+            fi
+          done
+
+      # ── 7. Run the IPL Tadka poster ───────────────────────────────
+      - name: Run IPL Tadka poster
+        env:
+          OPENROUTER_API_KEY:      ${{ secrets.OPENROUTER_API_KEY }}
+          INSTAGRAM_USERNAME:      ${{ secrets.INSTAGRAM_USERNAME }}
+          INSTAGRAM_PASSWORD:      ${{ secrets.INSTAGRAM_PASSWORD }}
+          INSTAGRAM_SESSION_B64:   ${{ secrets.INSTAGRAM_SESSION_B64 }}
+          INSTAGRAM_ACCESS_TOKEN:  ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_ACCOUNT_ID:    ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+          IMGUR_CLIENT_ID:         ${{ secrets.IMGUR_CLIENT_ID }}
+          DRY_RUN:                 ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          cd ipl
+          ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          SLOT="${{ github.event.inputs.slot_hour }}"
+          if [ -n "$SLOT" ]; then
+            ARGS="$ARGS --slot-hour $SLOT"
+          fi
+          python main.py $ARGS
+
+      # ── 8. Save updated session + posted_log back to cache ────────
+      - name: Save assets cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: |
+            ipl/assets/posted_log.json
+            ipl/assets/session.json
+          key: ipl-assets-${{ runner.os }}
+
+      # ── 9. Commit updated session.json if changed (optional) ──────
+      - name: Commit session updates
+        if: success()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f ipl/assets/session.json ipl/assets/posted_log.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: update ipl session/log [skip ci]"
+          git push || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
