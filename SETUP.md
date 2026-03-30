@@ -40,7 +40,7 @@ base64 -w0 your_hype_track.mp3
 
 **Windows (PowerShell):**
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("your_hype_track.mp3"))
+[Convert]::ToBase64String([System.IO.File]::ReadAllBytes("assets\session.json")) | clip
 ```
 
 Copy the output and add it as a GitHub Secret named `MUSIC_01`, `MUSIC_02`, etc. (up to `MUSIC_05`).
