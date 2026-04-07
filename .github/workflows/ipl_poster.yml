@@ -1,23 +1,25 @@
 name: IPL Tadka — Auto Post
 
 # ─────────────────────────────────────────────────────────────────────
-# Schedule: 6 posts per day at fixed IST times
+# Schedule: 7 posts per day at fixed IST times
 # IST = UTC+5:30, so convert:
 #   06:00 IST = 00:30 UTC
-#   10:00 IST = 04:30 UTC
-#   17:00 IST = 11:30 UTC
+#   13:00 IST = 07:30 UTC
+#   19:30 IST = 14:00 UTC
+#   20:00 IST = 14:30 UTC
 #   21:00 IST = 15:30 UTC
 #   22:00 IST = 16:30 UTC
-#   23:15 IST = 17:45 UTC
+#   23:00 IST = 17:30 UTC
 # ─────────────────────────────────────────────────────────────────────
 on:
   schedule:
-    - cron: "30 0 * * *"   # 06:00 IST
-    - cron: "30 4 * * *"   # 10:00 IST
-    - cron: "30 11 * * *"  # 17:00 IST
-    - cron: "30 15 * * *"  # 21:00 IST
-    - cron: "30 16 * * *"  # 22:00 IST
-    - cron: "45 17 * * *"  # 23:15 IST
+    - cron: "30 0 * * *"   # 06:00 IST — Morning hype / match preview
+    - cron: "30 7 * * *"   # 13:00 IST — Player in form / top performer
+    - cron: "0 14 * * *"   # 19:30 IST — Live match action start
+    - cron: "30 14 * * *"  # 20:00 IST — Live match continues
+    - cron: "30 15 * * *"  # 21:00 IST — Live match continues
+    - cron: "30 16 * * *"  # 22:00 IST — Live match final overs
+    - cron: "30 17 * * *"  # 23:00 IST — Post-match points table / records
 
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
@@ -27,7 +29,7 @@ on:
         required: false
         default: "false"
       slot_hour:
-        description: "Force slot hour (6/10/17/21/22/23, leave blank for auto)"
+        description: "Force slot hour (6/13/19/20/21/22/23, leave blank for auto)"
         required: false
         default: ""
 

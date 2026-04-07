@@ -50,7 +50,7 @@ IMAGE_MODEL = "google/gemini-3-pro-image-preview"
 BRAND_NAME     = "IPL Tadka"
 BRAND_HANDLE   = "@ipl_tadka"
 BRAND_HASHTAGS = (
-    "#IPLTadka #IPL2025 #IPL #CricketNews #IPLUpdates #CricketLovers "
+    "#IPLTadka #IPL2026 #IPL #CricketNews #IPLUpdates #CricketLovers "
     "#IndianPremierLeague #CricketFever #IPLCricket #IPLLive #T20Cricket "
     "#CricketIndia #ViralCricket #IPLBreaking #CricketShorts"
 )
@@ -63,6 +63,7 @@ ASSETS_DIR   = os.path.join(BASE_DIR, "assets")
 FONTS_DIR    = os.path.join(ASSETS_DIR, "fonts")
 MUSIC_DIR    = os.path.join(ASSETS_DIR, "music")
 OUTPUT_DIR   = os.path.join(BASE_DIR, "output")
+TEAMS_DIR    = os.path.join(BASE_DIR, "ipl_teams")
 POSTED_LOG   = os.path.join(ASSETS_DIR, "posted_log.json")
 SESSION_FILE = os.path.join(ASSETS_DIR, "session.json")
 
@@ -78,24 +79,49 @@ IST        = ZoneInfo("Asia/Kolkata")
 # Each slot maps to a DIFFERENT IPL topic bucket so posts stay diverse.
 # ═══════════════════════════════════════════════════════════════════════
 
-# hour (IST) → (slot_index 0-5, topic_focus)
+# hour (IST) → (slot_index, topic_focus)
 SLOT_MAP = {
-    6:  (0, "match_preview"),       # 06:00 — Morning hype, today's match preview
-    10: (1, "player_form"),         # 10:00 — Player in form / top performer news
-    17: (2, "live_match_action"),   # 17:00 — Evening live action / highlights
-    21: (3, "team_drama"),          # 21:00 — Night team drama / selection shocks
-    22: (4, "controversy"),         # 22:00 — Late-night controversy / heated moments
-    23: (5, "standings_records"),   # 23:15 — Points table / records shattered
+    6:  (0, "match_preview"),       # ~06:00 — Morning hype, today's match preview
+    13: (1, "player_form"),         # ~13:00 — Player in form / top performer news
+    19: (2, "live_match_action"),   # ~19:30 — Live match action (7:30 PM start)
+    20: (3, "live_match_action"),   # ~20:00 — Live match continues
+    21: (4, "live_match_action"),   # ~21:00 — Live match continues
+    22: (5, "live_match_action"),   # ~22:00 — Live match final overs
+    23: (6, "standings_records"),   # ~23:00 — Post-match points table / records
 }
 
+# Base minute within each hour (19 → 30 means 7:30 PM base start)
+_SLOT_BASE_MIN  = {6: 0, 13: 0, 19: 30, 20: 0, 21: 0, 22: 0, 23: 0}
+_VARIATION_MINS = 15  # daily ±15 min shift per slot
+
+
+def _daily_offsets():
+    """Per-slot minute offsets seeded by today's IST date.
+    Stable throughout the day, different every day.
+    """
+    seed = int(datetime.now(IST).strftime("%Y%m%d"))
+    rng  = random.Random(seed)
+    return {h: rng.randint(-_VARIATION_MINS, _VARIATION_MINS) for h in SLOT_MAP}
+
+
 def get_current_slot():
-    now_ist = datetime.now(IST)
-    hour    = now_ist.hour
-    # Find the closest slot that hasn't passed by more than 1 hour
-    for h in sorted(SLOT_MAP.keys()):
-        if hour <= h + 1:
-            return SLOT_MAP[h]
-    return SLOT_MAP[23]  # fallback to last slot
+    now_ist   = datetime.now(IST)
+    total_min = now_ist.hour * 60 + now_ist.minute
+    offsets   = _daily_offsets()
+
+    # Compute today's effective start time (in minutes) for each slot
+    slots = sorted(
+        [(h * 60 + _SLOT_BASE_MIN[h] + offsets[h], SLOT_MAP[h]) for h in SLOT_MAP],
+        key=lambda x: x[0],
+    )
+
+    # The active slot is the last one whose start time has already passed
+    active = slots[0][1]  # default: earliest slot
+    for start_min, slot_data in slots:
+        if total_min >= start_min:
+            active = slot_data
+
+    return active
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -124,30 +150,65 @@ RSS_FEEDS = [
 # IPL-specific viral keywords (aggressive cricket context)
 IPL_KEYWORDS = [
     # Match action
-    "ipl", "t20", "six", "wicket", "century", "fifty", "hat-trick",
-    "bowled", "caught", "run-out", "lbw", "no ball", "wide", "overthrow",
-    "super over", "last ball", "final over", "chase", "target", "powerplay",
+    "ipl", "t20", "six", "sixes", "wicket", "wickets", "century", "fifty",
+    "hat-trick", "bowled", "caught", "run-out", "lbw", "no ball", "wide",
+    "overthrow", "super over", "last ball", "final over", "chase", "target",
+    "powerplay", "death over", "yorker", "bouncer", "slower ball", "googly",
+    "doosra", "carrom ball", "reverse sweep", "scoop", "ramp", "helicopter",
+    "upper cut", "slog", "miscue", "top edge", "caught behind", "stumped",
+    "run rate", "required rate", "net run rate", "dls", "super 8",
+    "first innings", "second innings", "batting first", "chasing",
+    "powerplay wicket", "opening stand", "partnership", "50-run stand",
+    "100-run stand", "last over", "last wicket", "tail", "tailender",
     # Teams
     "csk", "mi", "rcb", "kkr", "srh", "dc", "pbks", "rr", "gt", "lsg",
-    "chennai", "mumbai", "bangalore", "kolkata", "hyderabad", "delhi",
-    "punjab", "rajasthan", "gujarat", "lucknow",
-    # Players (top IPL names)
+    "chennai", "mumbai", "bangalore", "bengaluru", "kolkata", "hyderabad",
+    "delhi", "punjab", "rajasthan", "gujarat", "lucknow",
+    "super kings", "indians", "challengers", "knight riders", "sunrisers",
+    "capitals", "kings", "royals", "titans", "super giants",
+    # Players — established stars
     "dhoni", "kohli", "rohit", "bumrah", "warner", "buttler", "rashid",
     "stokes", "maxwell", "pollard", "gayle", "de villiers", "hardik",
     "pandya", "jadeja", "chahal", "shami", "siraj", "suryakumar",
-    "gill", "pant", "iyer", "samson", "smith",
+    "gill", "pant", "iyer", "samson", "smith", "williamson", "bairstow",
+    "ABD", "SKY", "MSD", "hitman",
+    # Players — emerging & current IPL 2026 stars
+    "ruturaj", "gaikwad", "tilak varma", "yashasvi", "jaiswal",
+    "rinku singh", "shubman", "klaasen", "stubbs", "brevis", "head",
+    "travis head", "abhishek sharma", "nitish kumar", "riyan parag",
+    "dhruv jurel", "anukul", "mayank yadav", "akash deep", "noor ahmad",
+    "varun", "varun chakaravarthy", "mitchell starc", "pat cummins",
+    "cameron green", "liam livingstone", "jonny bairstow", "nicholas pooran",
+    "quinton de kock", "kl rahul", "krunal pandya", "axar patel",
+    "washington sundar", "kuldeep yadav", "arshdeep", "avesh khan",
+    "deepak chahar", "mohit sharma", "tushar deshpande", "shardul",
+    "prabhsimran", "sai sudarshan", "pathirana",
     # Drama & virality
-    "dropped", "injured", "sacked", "controversy", "fight", "row", "angry",
-    "explosive", "stunning", "record", "historic", "maiden", "fastest",
-    "most expensive", "brutal", "carnage", "demolish", "thrash", "collapse",
-    "shocking", "heartbreak", "comeback", "upset", "clash", "rivalry",
-    "auction", "retained", "released", "traded", "salary",
+    "dropped", "injured", "injury", "sacked", "controversy", "fight",
+    "row", "angry", "furious", "explosive", "stunning", "stunner",
+    "record", "historic", "maiden", "fastest", "slowest", "most expensive",
+    "brutal", "carnage", "demolish", "thrash", "collapse", "shocking",
+    "heartbreak", "comeback", "upset", "clash", "rivalry", "dominate",
+    "blitz", "blistering", "superb", "incredible", "unbelievable",
+    "sensational", "outclassed", "hammered", "destroyed", "smashed",
+    "tonked", "retired hurt", "concussion sub", "impact player",
+    "auction", "retained", "released", "traded", "salary", "mega auction",
+    "uncapped", "overseas", "squad", "playing xi", "team sheet",
 ]
 
 GENERIC_VIRAL = [
-    "win", "loss", "defeat", "champion", "trophy", "final", "semifinal",
-    "qualified", "eliminated", "ban", "fine", "suspended", "umpire",
-    "drs", "review", "rain", "duckworth", "pitch", "toss", "captain",
+    "win", "loss", "defeat", "champion", "championship", "trophy",
+    "final", "semifinal", "qualifier", "eliminator", "playoffs",
+    "qualified", "eliminated", "ban", "fine", "suspended", "suspension",
+    "umpire", "drs", "review", "overturned", "rain", "duckworth",
+    "pitch", "toss", "captain", "captaincy", "vice captain",
+    "press conference", "interview", "celebration", "reaction",
+    "highlight", "highlights", "viral", "trending", "breaking",
+    "exclusive", "confirmed", "official", "announced", "signed",
+    "hat trick", "milestone", "achievement", "stats", "numbers",
+    "points table", "standings", "ranking", "form", "momentum",
+    "stunning catch", "missed catch", "dropped catch", "direct hit",
+    "brilliant", "masterclass", "clinical", "ruthless", "dominant",
 ]
 
 
@@ -158,14 +219,10 @@ def _clean_html(text):
 
 def _score_virality(title, summary=""):
     combined = (title + " " + summary).lower()
-    score = 0
-    for kw in IPL_KEYWORDS:
-        if kw in combined:
-            score += 2          # IPL keyword = double weight
-    for kw in GENERIC_VIRAL:
-        if kw in combined:
-            score += 1
-    return score
+    return (
+        sum(2 for kw in IPL_KEYWORDS if kw in combined) +
+        sum(1 for kw in GENERIC_VIRAL if kw in combined)
+    )
 
 
 def _is_ipl_relevant(title, summary=""):
@@ -173,6 +230,56 @@ def _is_ipl_relevant(title, summary=""):
     combined = (title + " " + summary).lower()
     ipl_core = ["ipl", "t20", "cricket", "india", "match", "wicket", "run"]
     return any(kw in combined for kw in ipl_core)
+
+
+# Rotate through realistic User-Agent strings to reduce 403s
+_UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+]
+
+def _fetch_full_article(url, timeout=12):
+    """Fetch and extract plain text body from a news article URL.
+    Returns empty string on 403/404/any error — caller falls back to RSS summary.
+    """
+    if not url:
+        return ""
+    ua = random.choice(_UA_POOL)
+    headers = {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": "https://www.google.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        if r.status_code in (403, 401, 429):
+            # Site blocks bots — silently skip, use RSS summary instead
+            return ""
+        r.raise_for_status()
+        # Strip scripts, styles, nav, footer, ads
+        text = re.sub(r"(?i)<(script|style|nav|footer|header|aside|form|button|noscript)[^>]*>[\s\S]*?</\1>", "", r.text)
+        # Remove all remaining HTML tags
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = html.unescape(text)
+        # Collapse whitespace
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = text.strip()
+        # Return up to ~3000 chars to keep LLM context focused
+        return text[:3000]
+    except Exception as e:
+        print(f"[Article Fetch] Failed for {url}: {e}")
+        return ""
 
 
 def fetch_news(max_articles=30):
@@ -187,14 +294,17 @@ def fetch_news(max_articles=30):
                 summary = _clean_html(entry.get("summary", entry.get("description", "")))
                 if not title:
                     continue
+                link = entry.get("link", "")
+                full_content = _fetch_full_article(link)
                 articles.append({
-                    "title":     title,
-                    "summary":   summary,
-                    "link":      entry.get("link", ""),
-                    "source":    source,
-                    "category":  category,
-                    "published": entry.get("published", entry.get("updated", "")),
-                    "score":     _score_virality(title, summary),
+                    "title":        title,
+                    "summary":      summary,
+                    "full_content": full_content,
+                    "link":         link,
+                    "source":       source,
+                    "category":     category,
+                    "published":    entry.get("published", entry.get("updated", "")),
+                    "score":        _score_virality(title, summary),
                 })
         except Exception as e:
             print(f"[RSS] Error fetching {feed_url}: {e}")
@@ -209,11 +319,11 @@ def fetch_news(max_articles=30):
     combined = ipl_articles + other_articles
 
     # Deduplicate by title prefix
-    seen, unique = [], []
+    seen, unique = set(), []
     for a in combined:
         key = a["title"].lower()[:60]
         if key not in seen:
-            seen.append(key)
+            seen.add(key)
             unique.append(a)
 
     return unique[:max_articles]
@@ -300,17 +410,27 @@ def rewrite_news_content(article, slot_index=0, topic_focus="match_preview"):
     Call Gemini 2.5 Pro to generate aggressive IPL caption + viral headline + image prompt.
     """
     if not OPENROUTER_API_KEY:
-        print("[Gemini Text] OPENROUTER_API_KEY not set.")
+        print("[Gemini Text] OPENROUTER_API_KEY not set. Add it as a GitHub Actions secret named OPENROUTER_API_KEY.")
+        return None
+    if not OPENROUTER_API_KEY.startswith(("sk-", "eyJ")):
+        print(f"[Gemini Text] OPENROUTER_API_KEY looks invalid (starts with: {OPENROUTER_API_KEY[:6]!r}). Check the secret value.")
         return None
 
-    title   = article["title"].replace('"', '\\"').replace('\n', ' ')
-    summary = (article.get("summary", "") or "").replace('"', '\\"').replace('\n', ' ')
-    source  = article.get("source", "Cricket News").replace('"', '\\"')
-    theme   = VISUAL_THEMES[slot_index % len(VISUAL_THEMES)]
+    title        = article["title"].replace('"', '\\"').replace('\n', ' ')
+    summary      = (article.get("summary", "") or "").replace('"', '\\"').replace('\n', ' ')
+    full_content = (article.get("full_content", "") or "").replace('"', '\\"').replace('\n', ' ')
+    source       = article.get("source", "Cricket News").replace('"', '\\"')
+    theme        = VISUAL_THEMES[slot_index % len(VISUAL_THEMES)]
+
+    # Build the full news context block sent to the LLM
+    news_context = f"Title: {title}\nSummary: {summary}"
+    if full_content:
+        news_context += f"\nFull Article Content:\n{full_content}"
+    news_context += f"\nSource: {source}\nTopic focus for this post: {topic_focus}"
 
     prompt = f"""You are the most AGGRESSIVE, VIRAL cricket news writer on Instagram for the brand "IPL Tadka" (@ipl_tadka).
 
-Given this IPL/cricket news, produce a JSON response with exactly these 4 keys:
+Given this IPL/cricket news, produce a JSON response with exactly these 6 keys:
 
 1. "rewritten_summary": Rewrite the news in 3-5 sentences. Use SIMPLE, DIRECT English. Be AGGRESSIVE and PUNCHY. Use fire emojis, cricket emojis. Make fans feel HYPE. Every sentence must land like a punch.
 
@@ -333,7 +453,7 @@ Given this IPL/cricket news, produce a JSON response with exactly these 4 keys:
 4. "image_prompt": A detailed prompt for AI image generation. Start with: "Generate and return an image."
    Then describe:
 
-   MAIN SCENE: Ultra-photorealistic, hyper-detailed cricket photograph capturing the most EXPLOSIVE, DRAMATIC moment related to this story: "{summary}". The scene MUST feature AT LEAST TWO players from DIFFERENT IPL teams — one from each side — clearly identifiable by their distinct team jerseys/kits. Both players must be the focal point of the composition. CRITICAL: The two players must NOT be facing each other or looking at each other — each player is independently showing raw aggression. The scene must be CINEMATIC and AGGRESSIVE. Use {theme['atmosphere']}. Shot at f/1.4 with a 200mm telephoto lens — BOTH players' faces MUST be hyper-realistic, lifelike, every skin pore, sweat drop, muscle tension, and expression visible at 8K resolution. Eyes sharp and intense. Expressions match the emotion of the story — one dominant, one under pressure. Contrasting team jersey colors must be vivid and accurate to real IPL kits. Do NOT use cartoon or illustration — photorealistic press photography only. Lens flare from stadium floodlights. Motion blur on crowd background. {theme['color_grade']} color grading. Deep cinematic vignette on all four edges. The final image MUST look like a real AFP/Reuters/BCCI press photo with two rival players — zero AI artifacts.
+   MAIN SCENE: Ultra-photorealistic, hyper-detailed cricket photograph capturing the most EXPLOSIVE, DRAMATIC moment related to this story: "{summary}". The scene MUST feature the SPECIFIC PLAYERS mentioned in this article — use their actual real-world face likeness, skin tone, hair, and physical features exactly as they appear in real life. If multiple players are mentioned, show AT LEAST TWO of them from DIFFERENT IPL teams, one from each side, clearly identifiable by their distinct team jerseys/kits. Both players must be the focal point of the composition. CRITICAL: The two players must NOT be facing each other or looking at each other — each player is independently showing raw aggression. The scene must be CINEMATIC and AGGRESSIVE. Use {theme['atmosphere']}. Shot at f/1.4 with a 200mm telephoto lens — BOTH players' faces MUST be hyper-realistic, lifelike, every skin pore, sweat drop, muscle tension, and expression visible at 8K resolution. Eyes sharp and intense. Expressions match the emotion of the story — one dominant, one under pressure. Contrasting team jersey colors must be vivid and accurate to real IPL kits. Do NOT use cartoon or illustration — photorealistic press photography only. Lens flare from stadium floodlights. Motion blur on crowd background. {theme['color_grade']} color grading. Deep cinematic vignette on all four edges. The final image MUST look like a real AFP/Reuters/BCCI press photo with two rival players — zero AI artifacts.
 
    BOTTOM BAR (pixels 810–1080, full width): Solid black overlay (90% opacity). A bold 5px bright orange horizontal line runs the full width at the very top of this bar. Inside the bar: viral headline in LARGE BOLD white Impact/Oswald font (62pt), ALL CAPS, word-wrapped to 2 lines max, left-aligned with 44px margin. Below headline: "📡 {source.upper()}" in light gray condensed font (28pt).
 
@@ -345,11 +465,16 @@ Given this IPL/cricket news, produce a JSON response with exactly these 4 keys:
 
    IMPORTANT: Generate and return the actual image. All text and overlays must be burned into the image at the exact positions. Face of any player must be hyper-realistic and identifiable.
 
+5. "teams": JSON array of EXACTLY 2 IPL team codes. Choose ONLY from: ["CSK", "MI", "RCB", "KKR", "SRH", "DC", "PBKS", "RR", "GT", "LSG"].
+   - First, identify any teams directly mentioned in the article.
+   - If only 1 team is found, infer the second from player names (e.g. Rohit/Bumrah/Hardik → MI, Kohli/Jadeja → RCB, Dhoni/Ruturaj → CSK, etc.).
+   - If no teams are identifiable at all, pick the 2 most likely teams based on the story context.
+   - ALWAYS return exactly 2 codes. Never return [] or a single-item array.
+
+6. "players": JSON array of up to 4 player full names explicitly mentioned or strongly implied in the article (e.g. ["Rohit Sharma", "Virat Kohli"]). These are the players whose faces must appear in the generated image. Return [] only if no specific players are mentioned.
+
 News article:
-Title: {title}
-Summary: {summary}
-Source: {source}
-Topic focus for this post: {topic_focus}
+{news_context}
 
 Respond with ONLY valid JSON. No markdown fences. No extra text."""
 
@@ -377,17 +502,34 @@ Respond with ONLY valid JSON. No markdown fences. No extra text."""
         data = json.loads(raw)
         print("[Gemini Text] Content rewritten successfully.")
         viral_headline = data.get("viral_headline", title.upper())
+        players        = data.get("players", [])
+        teams          = data.get("teams", [])
 
         raw_img_prompt = data.get("image_prompt", "")
         if raw_img_prompt:
             raw_img_prompt = raw_img_prompt.replace("viral_headline", viral_headline)
+            # Inject player names explicitly into image prompt so the model knows who to draw
+            if players:
+                player_str = " and ".join(players[:4])
+                raw_img_prompt = raw_img_prompt.replace(
+                    "MAIN SCENE:",
+                    f"PLAYERS TO DEPICT (use their real face likeness): {player_str}.\n\n   MAIN SCENE:",
+                    1,
+                )
         image_prompt = raw_img_prompt if raw_img_prompt else _default_image_prompt(article, viral_headline, slot_index)
+
+        if players:
+            print(f"[Gemini Text] Players identified: {', '.join(players)}")
+        if teams:
+            print(f"[Gemini Text] Teams identified: {', '.join(teams)}")
 
         return {
             "rewritten_summary": data.get("rewritten_summary", summary),
             "viral_headline":    viral_headline,
             "caption":           data.get("caption", ""),
             "image_prompt":      image_prompt,
+            "teams":             teams,
+            "players":           players,
         }
     except Exception as e:
         print(f"[Gemini Text] API call failed: {e}")
@@ -423,17 +565,75 @@ def _default_image_prompt(article, viral_headline, slot_index=0):
     )
 
 
+def _load_team_images(team_codes):
+    """Load team player-face images as base64 dicts for multimodal API requests."""
+    images = []
+    for code in team_codes:
+        for ext in (".PNG", ".jpg", ".jpeg", ".png"):
+            path = os.path.join(TEAMS_DIR, f"{code}{ext}")
+            if os.path.exists(path):
+                mime = "image/jpeg" if ext.lower() in (".jpg", ".jpeg") else "image/png"
+                with open(path, "rb") as fh:
+                    b64 = base64.b64encode(fh.read()).decode("utf-8")
+                images.append({"team": code, "mime": mime, "data": b64})
+                print(f"[Team Images] Loaded {code} player faces from {os.path.basename(path)}")
+                break
+        else:
+            print(f"[Team Images] No image found for team: {code}")
+    return images
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # SECTION 3 — GEMINI IMAGE GENERATION
 # ═══════════════════════════════════════════════════════════════════════
 
-def generate_image_with_gemini(image_prompt):
+def generate_image_with_gemini(image_prompt, team_images=None):
     if not OPENROUTER_API_KEY:
         print("[Gemini Image] OPENROUTER_API_KEY not set.")
         return None
 
     print("[Gemini Image] Generating aggressive IPL image...")
     try:
+        # Build multimodal content: team face reference images + text prompt
+        if team_images:
+            team_labels = " and ".join(ti["team"] for ti in team_images)
+            content_parts = [
+                {
+                    "type": "text",
+                    "text": (
+                        f"MANDATORY FACE REFERENCE INSTRUCTIONS — READ BEFORE GENERATING:\n"
+                        f"The images below are the OFFICIAL current squad face references for {team_labels}. "
+                        f"These are the ONLY faces you are allowed to use for players from these teams. "
+                        f"You MUST copy the exact face, skin tone, hair, jawline, and features from these reference photos. "
+                        f"DO NOT use your training data face of any player — only the faces shown in these reference images. "
+                        f"If a player's face in your training data differs from the reference image, the reference image ALWAYS wins.\n"
+                    ),
+                }
+            ]
+            for ti in team_images:
+                content_parts.append({
+                    "type": "text",
+                    "text": (
+                        f"▼ REFERENCE IMAGE FOR {ti['team']} PLAYERS — "
+                        f"Use ONLY these faces for any {ti['team']} player that appears in the generated image. "
+                        f"Match each player's face exactly as shown below:"
+                    ),
+                })
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{ti['mime']};base64,{ti['data']}"},
+                })
+            # Append a reinforcement line then the main image prompt
+            reinforcement = (
+                f"\n\nCRITICAL REMINDER: The faces shown in the reference images above are the ground truth. "
+                f"Reproduce them pixel-perfectly in the generated image. "
+                f"Do not substitute any player face with a face from your training memory.\n\n"
+            )
+            content_parts.append({"type": "text", "text": reinforcement + image_prompt})
+            message_content = content_parts
+        else:
+            message_content = image_prompt
+
         resp = requests.post(
             f"{OPENROUTER_BASE}/chat/completions",
             headers={
@@ -444,7 +644,7 @@ def generate_image_with_gemini(image_prompt):
             },
             json={
                 "model":    IMAGE_MODEL,
-                "messages": [{"role": "user", "content": image_prompt}],
+                "messages": [{"role": "user", "content": message_content}],
             },
             timeout=180,
         )
@@ -849,9 +1049,13 @@ def process_article(article, slot_index, topic_focus, dry_run=False):
         print("[Pipeline] Content rewriting failed. Skipping.")
         return None
 
-    # Step 2: Generate image
+    # Step 2: Generate image (with team face references if teams detected)
     print("\n[2/5] Generating explosive IPL image with Gemini...")
-    gemini_img = generate_image_with_gemini(content["image_prompt"])
+    team_codes  = content.get("teams", [])
+    team_images = _load_team_images(team_codes) if team_codes else []
+    if team_codes:
+        print(f"[Pipeline] Detected teams: {', '.join(team_codes)} — injecting player face references")
+    gemini_img = generate_image_with_gemini(content["image_prompt"], team_images=team_images or None)
 
     # Step 3: Save image
     print("\n[3/5] Saving image...")
@@ -936,8 +1140,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="IPL Tadka Instagram Auto-Poster")
     parser.add_argument("--dry-run",    action="store_true", help="Skip actual Instagram posting")
-    parser.add_argument("--slot-hour",  type=int, default=None, choices=[6, 8, 10, 12, 14, 16],
-                        help="Force a specific slot hour (6/8/10/12/14/16)")
+    parser.add_argument("--slot-hour",  type=int, default=None, choices=[6, 10, 19, 20, 21, 22, 23],
+                        help="Force a specific slot hour (6/10/19/20/21/22/23)")
     args = parser.parse_args()
 
     run(dry_run=args.dry_run or DRY_RUN, force_slot=args.slot_hour)
